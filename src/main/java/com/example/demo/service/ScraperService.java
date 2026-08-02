@@ -29,14 +29,21 @@ public class ScraperService {
             throw new IllegalArgumentException("Invalid date format. Expected YYYY-MM-DD.");
         }
 
+        String apiKey = System.getenv("WEBSCRAPING_API_KEY");
+        if (apiKey == null || apiKey.isEmpty()) {
+            log.error("Missing WEBSCRAPING_API_KEY environment variable.");
+            throw new RuntimeException("Server configuration error.");
+        }
+
         String targetUrl = ALLOWED_DOMAIN + date;
+        // Use WebScraping.AI with JS=true to bypass AWS IP blocks and execute JS rendering
+        String webScrapingUrl = "https://api.webscraping.ai/html?api_key=" + apiKey + 
+                                "&js=true&url=" + java.net.URLEncoder.encode(targetUrl, java.nio.charset.StandardCharsets.UTF_8);
         
         try {
-            // Use Jsoup to fetch and parse the HTML
-            // Set User-Agent to avoid being blocked, and timeout to 10 seconds
-            Document doc = Jsoup.connect(targetUrl)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .timeout(10000)
+            // Use Jsoup to fetch and parse the HTML from WebScraping.AI
+            Document doc = Jsoup.connect(webScrapingUrl)
+                    .timeout(30000) // Increase timeout to 30s since JS rendering takes longer
                     .get();
 
             // Extract the horses using the CSS selector
