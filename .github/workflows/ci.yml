@@ -20,7 +20,13 @@ jobs:
 
     env:
       AWS_REGION: eu-west-3
-      
+      WEBSCRAPING_API_KEY: ${{
+              (github.event_name == 'pull_request' && github.base_ref == 'prod') && secrets.PROD_WEBSCRAPING_API_KEY ||
+              (github.event_name == 'pull_request' && github.base_ref == 'preprod') && secrets.PREPROD_WEBSCRAPING_API_KEY ||
+              (github.ref == 'refs/heads/prod') && secrets.PROD_WEBSCRAPING_API_KEY ||
+              (github.ref == 'refs/heads/preprod') && secrets.PREPROD_WEBSCRAPING_API_KEY
+              }}
+
 
     steps:
       - uses: actions/checkout@v4.1.6
@@ -32,7 +38,8 @@ jobs:
       - run: chmod +x gradlew
       - run: chmod +x .shell/publish_gen_to_maven_local.sh
       - run: |
-          ./gradlew test
+          ./gradlew test \
+            -Dwebscraping.api.key="$WEBSCRAPING_API_KEY"
 
       
 
