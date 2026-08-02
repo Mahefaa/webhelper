@@ -26,6 +26,12 @@ jobs:
               (github.ref == 'refs/heads/prod') && secrets.PROD_WEBSCRAPING_API_KEY ||
               (github.ref == 'refs/heads/preprod') && secrets.PREPROD_WEBSCRAPING_API_KEY
               }}
+      API_KEY: ${{
+              (github.event_name == 'pull_request' && github.base_ref == 'prod') && secrets.PROD_API_KEY ||
+              (github.event_name == 'pull_request' && github.base_ref == 'preprod') && secrets.PREPROD_API_KEY ||
+              (github.ref == 'refs/heads/prod') && secrets.PROD_API_KEY ||
+              (github.ref == 'refs/heads/preprod') && secrets.PREPROD_API_KEY
+              }}
 
 
     steps:
@@ -39,7 +45,8 @@ jobs:
       - run: chmod +x .shell/publish_gen_to_maven_local.sh
       - run: |
           ./gradlew test \
-            -Dwebscraping.api.key="$WEBSCRAPING_API_KEY"
+            -Dwebscraping.api.key="$WEBSCRAPING_API_KEY" \
+            -Dapi.key="$API_KEY"
 
       
 
