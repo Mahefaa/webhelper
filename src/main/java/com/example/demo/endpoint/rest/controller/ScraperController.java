@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @PojaGenerated
@@ -20,9 +21,11 @@ public class ScraperController {
     private final ScraperService scraperService;
 
     @GetMapping(value = "/{date}", produces = MediaType.APPLICATION_XML_VALUE)
-    public ResponseEntity<HorseList> getHorsesByDate(@PathVariable String date) {
+    public ResponseEntity<HorseList> getHorsesByDate(
+            @PathVariable String date,
+            @RequestParam(required = false) String rnd) {
         try {
-            HorseList horses = scraperService.scrapeHorses(date);
+            HorseList horses = scraperService.scrapeHorses(date, rnd);
             return ResponseEntity.ok(horses);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
