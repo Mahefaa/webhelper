@@ -92,6 +92,9 @@ public class ScraperService {
 
     String apiKey = System.getenv("WEBSCRAPING_API_KEY");
     if (apiKey == null || apiKey.isEmpty()) {
+      apiKey = System.getProperty("webscraping.api.key");
+    }
+    if (apiKey == null || apiKey.isEmpty()) {
       log.error("Missing WEBSCRAPING_API_KEY environment variable.");
       throw new RuntimeException("Server configuration error.");
     }
