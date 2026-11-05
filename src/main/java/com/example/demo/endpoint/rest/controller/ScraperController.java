@@ -1,8 +1,8 @@
 package com.example.demo.endpoint.rest.controller;
 
+import com.example.demo.PojaGenerated;
 import com.example.demo.model.HorseList;
 import com.example.demo.service.ScraperService;
-import com.example.demo.PojaGenerated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -18,19 +18,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class ScraperController {
 
-    private final ScraperService scraperService;
+  private final ScraperService scraperService;
 
-    @GetMapping(value = "/{date}", produces = MediaType.APPLICATION_XML_VALUE)
-    public ResponseEntity<HorseList> getHorsesByDate(
-            @PathVariable String date,
-            @RequestParam(required = false) String rnd) {
-        try {
-            HorseList horses = scraperService.scrapeHorses(date, rnd);
-            return ResponseEntity.ok(horses);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().build();
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
-        }
+  @GetMapping(value = "/{date}", produces = MediaType.APPLICATION_XML_VALUE)
+  public ResponseEntity<HorseList> getHorsesByDate(
+      @PathVariable String date, @RequestParam(required = false) String rnd) {
+    try {
+      HorseList horses = scraperService.scrapeHorses(date, rnd);
+      return ResponseEntity.ok(horses);
+    } catch (IllegalArgumentException e) {
+      return ResponseEntity.badRequest().build();
+    } catch (Exception e) {
+      return ResponseEntity.internalServerError().build();
     }
+  }
 }
