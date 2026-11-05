@@ -32,12 +32,26 @@ public class ScraperService {
   private static final String ALLOWED_DOMAIN = "https://www.geny.com/chevaux/";
   private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
+  /** Injectable HTTP fetcher — real impl uses Jsoup; tests supply a mock. */
+  @FunctionalInterface
+  public interface HtmlFetcher {
+    Document fetch(String url) throws IOException;
+  }
+
   private final BucketConf bucketConf;
   private final ObjectMapper objectMapper;
+  private final HtmlFetcher htmlFetcher;
 
+  /** Production constructor — uses real Jsoup. */
   public ScraperService(BucketConf bucketConf, ObjectMapper objectMapper) {
+    this(bucketConf, objectMapper, url -> Jsoup.connect(url).maxBodySize(0).timeout(60000).get());
+  }
+
+  /** Test constructor — accepts a mock fetcher. */
+  public ScraperService(BucketConf bucketConf, ObjectMapper objectMapper, HtmlFetcher fetcher) {
     this.bucketConf = bucketConf;
     this.objectMapper = objectMapper;
+    this.htmlFetcher = fetcher;
   }
 
   public static class CacheWrapper {
@@ -60,7 +74,6 @@ public class ScraperService {
 
     String currentCacheKey = date + "_" + (rnd != null ? rnd : "");
     String bucketName = bucketConf.getBucketName();
-
     String s3Key = "scrape_" + currentCacheKey + ".json";
 
     try {
@@ -113,10 +126,8 @@ public class ScraperService {
             + java.net.URLEncoder.encode(targetUrl, java.nio.charset.StandardCharsets.UTF_8);
 
     try {
-      // maxBodySize=0 to handle the full 1.8MB+ rendered page; client timeout > server timeout
-      Document doc = Jsoup.connect(webScrapingUrl).maxBodySize(0).timeout(60000).get();
+      Document doc = htmlFetcher.fetch(webScrapingUrl);
 
-      // Extract the horses using the CSS selector
       Elements horseElements = doc.select("div.font-semibold.text-gray-900");
 
       List<Horse> horses = new ArrayList<>();
