@@ -127,16 +127,18 @@ public class ScraperService {
       log.info("Successfully scraped {} horses from {}", horses.size(), targetUrl);
       HorseList result = new HorseList(horses);
 
-      try {
-        CacheWrapper wrapper = new CacheWrapper(currentCacheKey, result);
-        String json = objectMapper.writeValueAsString(wrapper);
-        bucketConf
-            .getS3Client()
-            .putObject(
-                PutObjectRequest.builder().bucket(bucketName).key(s3Key).build(),
-                RequestBody.fromString(json));
-      } catch (Exception e) {
-        log.warn("Failed to write cache to S3", e);
+      if (!horses.isEmpty()) {
+        try {
+          CacheWrapper wrapper = new CacheWrapper(currentCacheKey, result);
+          String json = objectMapper.writeValueAsString(wrapper);
+          bucketConf
+              .getS3Client()
+              .putObject(
+                  PutObjectRequest.builder().bucket(bucketName).key(s3Key).build(),
+                  RequestBody.fromString(json));
+        } catch (Exception e) {
+          log.warn("Failed to write cache to S3", e);
+        }
       }
 
       return result;
