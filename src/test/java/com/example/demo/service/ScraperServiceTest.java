@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.file.bucket.BucketConf;
+import com.example.demo.model.CachePruneResult;
 import com.example.demo.model.Horse;
 import com.example.demo.model.HorseList;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,13 +26,17 @@ import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 class ScraperServiceTest {
 
@@ -164,5 +169,72 @@ class ScraperServiceTest {
     assertThrows(
         IllegalArgumentException.class, () -> scraperService.scrapeHorses("invalid-date", null));
     assertThrows(IllegalArgumentException.class, () -> scraperService.scrapeHorses(null, null));
+  }
+
+  @Test
+  void prune_cache_dry_run_identifies_empty_and_duplicate_files() throws Exception {
+    Instant now = Instant.now();
+    S3Object emptyObj =
+        S3Object.builder()
+            .key("scrape_2026-11-01_.json")
+            .size(50L)
+            .lastModified(now.minusSeconds(100))
+            .build();
+    S3Object dupNewer =
+        S3Object.builder().key("scrape_2026-11-02_v2.json").size(500L).lastModified(now).build();
+    S3Object dupOlder =
+        S3Object.builder()
+            .key("scrape_2026-11-02_.json")
+            .size(500L)
+            .lastModified(now.minusSeconds(200))
+            .build();
+
+    ListObjectsV2Response listRes =
+        ListObjectsV2Response.builder().contents(List.of(emptyObj, dupNewer, dupOlder)).build();
+    when(s3Client.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(listRes);
+
+    String validCachedJson =
+        objectMapper.writeValueAsString(
+            new ScraperService.CacheWrapper("test", new HorseList(List.of(new Horse("H1")))));
+    ResponseBytes<GetObjectResponse> responseBytes =
+        ResponseBytes.fromByteArray(
+            GetObjectResponse.builder().build(), validCachedJson.getBytes());
+    when(s3Client.getObjectAsBytes(any(GetObjectRequest.class))).thenReturn(responseBytes);
+
+    ScraperService scraperService = new ScraperService(bucketConf, objectMapper);
+    CachePruneResult result = scraperService.pruneAndOptionallyRescrape(true, false);
+
+    assertNotNull(result);
+    assertTrue(result.isDryRun());
+    assertEquals(3, result.getTotalObjectsScanned());
+    assertEquals(1, result.getEmptyCachesDetected());
+    assertEquals(1, result.getDuplicatesDetected());
+    assertEquals(0, result.getDeletedCount());
+    assertTrue(result.getEmptyKeys().contains("scrape_2026-11-01_.json"));
+    assertTrue(result.getDuplicateKeys().contains("scrape_2026-11-02_.json"));
+
+    verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+  }
+
+  @Test
+  void prune_cache_executes_deletion_when_dry_run_is_false() throws Exception {
+    S3Object emptyObj =
+        S3Object.builder()
+            .key("scrape_2026-11-01_.json")
+            .size(30L)
+            .lastModified(Instant.now())
+            .build();
+
+    ListObjectsV2Response listRes =
+        ListObjectsV2Response.builder().contents(List.of(emptyObj)).build();
+    when(s3Client.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(listRes);
+
+    ScraperService scraperService = new ScraperService(bucketConf, objectMapper);
+    CachePruneResult result = scraperService.pruneAndOptionallyRescrape(false, false);
+
+    assertNotNull(result);
+    assertFalse(result.isDryRun());
+    assertEquals(1, result.getDeletedCount());
+    verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
   }
 }

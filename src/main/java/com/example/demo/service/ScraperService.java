@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.PojaGenerated;
 import com.example.demo.file.bucket.BucketConf;
+import com.example.demo.model.CachePruneResult;
 import com.example.demo.model.Horse;
 import com.example.demo.model.HorseList;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,7 +10,10 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -18,11 +22,15 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 @PojaGenerated
 @Service
@@ -176,5 +184,138 @@ public class ScraperService {
       log.error("Failed to connect or parse the URL: {}", targetUrl, e);
       throw new RuntimeException("Failed to fetch data from the target website.");
     }
+  }
+
+  public CachePruneResult pruneAndOptionallyRescrape(boolean dryRun, boolean reScrape) {
+    String bucketName = bucketConf.getBucketName();
+    List<String> emptyKeys = new ArrayList<>();
+    List<String> duplicateKeys = new ArrayList<>();
+    List<String> reScrapedDates = new ArrayList<>();
+    int deletedCount = 0;
+    int totalScanned = 0;
+
+    Pattern cacheKeyPattern = Pattern.compile("^scrape_(\\d{4}-\\d{2}-\\d{2})_(.*)\\.json$");
+    Map<String, List<S3Object>> objectsByDate = new HashMap<>();
+
+    try {
+      ListObjectsV2Request listReq =
+          ListObjectsV2Request.builder().bucket(bucketName).prefix("scrape_").build();
+      ListObjectsV2Response listRes = bucketConf.getS3Client().listObjectsV2(listReq);
+
+      List<S3Object> contents = listRes.contents();
+      totalScanned = contents != null ? contents.size() : 0;
+
+      if (contents != null) {
+        for (S3Object obj : contents) {
+          String key = obj.key();
+          Matcher matcher = cacheKeyPattern.matcher(key);
+          if (matcher.matches()) {
+            String date = matcher.group(1);
+            objectsByDate.computeIfAbsent(date, d -> new ArrayList<>()).add(obj);
+          }
+
+          boolean isEmpty = false;
+          if (obj.size() != null && obj.size() < 100) {
+            isEmpty = true;
+          } else {
+            try {
+              String body =
+                  bucketConf
+                      .getS3Client()
+                      .getObjectAsBytes(
+                          GetObjectRequest.builder().bucket(bucketName).key(key).build())
+                      .asUtf8String();
+              CacheWrapper wrapper = objectMapper.readValue(body, CacheWrapper.class);
+              if (wrapper.horseList == null
+                  || wrapper.horseList.getHorses() == null
+                  || wrapper.horseList.getHorses().isEmpty()) {
+                isEmpty = true;
+              }
+            } catch (Exception e) {
+              log.warn("Failed reading or parsing cache object {}: assuming invalid/empty", key, e);
+              isEmpty = true;
+            }
+          }
+
+          if (isEmpty) {
+            emptyKeys.add(key);
+          }
+        }
+
+        // Group-level duplicates: keep only the newest non-empty file per date
+        for (Map.Entry<String, List<S3Object>> entry : objectsByDate.entrySet()) {
+          List<S3Object> dateObjects = entry.getValue();
+          if (dateObjects.size() > 1) {
+            dateObjects.sort((a, b) -> b.lastModified().compareTo(a.lastModified()));
+            // Keep the first (newest), flag remaining as duplicates
+            for (int i = 1; i < dateObjects.size(); i++) {
+              String dupKey = dateObjects.get(i).key();
+              if (!emptyKeys.contains(dupKey)) {
+                duplicateKeys.add(dupKey);
+              }
+            }
+          }
+        }
+
+        // Combine keys to delete
+        List<String> keysToDelete = new ArrayList<>(emptyKeys);
+        for (String dupKey : duplicateKeys) {
+          if (!keysToDelete.contains(dupKey)) {
+            keysToDelete.add(dupKey);
+          }
+        }
+
+        if (!dryRun) {
+          for (String key : keysToDelete) {
+            try {
+              bucketConf
+                  .getS3Client()
+                  .deleteObject(DeleteObjectRequest.builder().bucket(bucketName).key(key).build());
+              deletedCount++;
+              log.info("Deleted S3 cache key: {}", key);
+            } catch (Exception e) {
+              log.error("Failed to delete S3 key: {}", key, e);
+            }
+          }
+
+          if (reScrape) {
+            java.util.Set<String> datesToRescrape = new java.util.LinkedHashSet<>();
+            for (String key : emptyKeys) {
+              Matcher m = cacheKeyPattern.matcher(key);
+              if (m.matches()) {
+                datesToRescrape.add(m.group(1));
+              }
+            }
+
+            for (String d : datesToRescrape) {
+              try {
+                log.info("Triggering fresh scrape for date: {}", d);
+                HorseList hl = scrapeHorses(d, null);
+                if (hl != null && hl.getHorses() != null && !hl.getHorses().isEmpty()) {
+                  reScrapedDates.add(d);
+                }
+              } catch (Exception e) {
+                log.error("Failed to re-scrape for date: {}", d, e);
+              }
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.error("Failed during S3 cache prune", e);
+      throw new RuntimeException("Error executing cache prune: " + e.getMessage(), e);
+    }
+
+    return CachePruneResult.builder()
+        .dryRun(dryRun)
+        .reScraped(reScrape)
+        .totalObjectsScanned(totalScanned)
+        .emptyCachesDetected(emptyKeys.size())
+        .duplicatesDetected(duplicateKeys.size())
+        .deletedCount(deletedCount)
+        .emptyKeys(emptyKeys)
+        .duplicateKeys(duplicateKeys)
+        .reScrapedDates(reScrapedDates)
+        .build();
   }
 }

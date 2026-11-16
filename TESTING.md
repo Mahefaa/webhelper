@@ -51,3 +51,27 @@ Expected output:
       ...
   </horses>
   ```
+
+---
+
+## S3 Cache Pruning & Maintenance
+
+To prune empty or duplicate S3 cache entries without needing local AWS IAM credentials:
+
+### 1. Dry Run (Preview Only)
+```bash
+./prune-cache.sh true false
+```
+Returns a JSON summary of empty cache files and duplicates found in S3 without deleting anything.
+
+### 2. Prune Only (Delete Empty & Duplicates)
+```bash
+./prune-cache.sh false false
+```
+
+### 3. Prune and Re-Scrape (Replace Empty Files with Fresh Scrapes)
+```bash
+./prune-cache.sh false true
+```
+This deletes empty caches and automatically triggers a fresh scrape for all affected dates using WebScraping.AI, writing the valid results back to S3.
+

@@ -1,6 +1,7 @@
 package com.example.demo.endpoint.rest.controller;
 
 import com.example.demo.PojaGenerated;
+import com.example.demo.model.CachePruneResult;
 import com.example.demo.model.HorseList;
 import com.example.demo.service.ScraperService;
 import lombok.RequiredArgsConstructor;
@@ -8,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,6 +30,18 @@ public class ScraperController {
       return ResponseEntity.ok(horses);
     } catch (IllegalArgumentException e) {
       return ResponseEntity.badRequest().build();
+    } catch (Exception e) {
+      return ResponseEntity.internalServerError().build();
+    }
+  }
+
+  @PostMapping(value = "/maintenance/prune-cache", produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<CachePruneResult> pruneCache(
+      @RequestParam(defaultValue = "true") boolean dryRun,
+      @RequestParam(defaultValue = "false") boolean reScrape) {
+    try {
+      CachePruneResult result = scraperService.pruneAndOptionallyRescrape(dryRun, reScrape);
+      return ResponseEntity.ok(result);
     } catch (Exception e) {
       return ResponseEntity.internalServerError().build();
     }
