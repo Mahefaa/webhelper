@@ -118,9 +118,7 @@ public class ScraperService {
     String webScrapingUrl =
         "https://api.webscraping.ai/html?api_key="
             + apiKey
-            + "&js=true&wait_for="
-            + java.net.URLEncoder.encode(
-                ".font-semibold.text-gray-900", java.nio.charset.StandardCharsets.UTF_8)
+            + "&proxy=residential&js=true"
             + "&timeout=25000"
             + "&url="
             + java.net.URLEncoder.encode(targetUrl, java.nio.charset.StandardCharsets.UTF_8);
@@ -128,13 +126,29 @@ public class ScraperService {
     try {
       Document doc = htmlFetcher.fetch(webScrapingUrl);
 
-      Elements horseElements = doc.select("div.font-semibold.text-gray-900");
-
       List<Horse> horses = new ArrayList<>();
+
+      // 1. Try standard DOM selector if elements were rendered into the DOM
+      Elements horseElements = doc.select("div.font-semibold.text-gray-900");
       for (Element el : horseElements) {
         String name = el.text().trim();
         if (!name.isEmpty()) {
           horses.add(new Horse(name));
+        }
+      }
+
+      // 2. Fallback: Parse Next.js SSR hydration payload directly from HTML
+      if (horses.isEmpty()) {
+        java.util.regex.Pattern p =
+            java.util.regex.Pattern.compile(
+                "\\\\\"cheval\\\\\":\\{\\\\\"id\\\\\":\\d+,\\\\\"nom\\\\\":\\\\\"([^\\\\\"]+)\\\\\"");
+        java.util.regex.Matcher m = p.matcher(doc.html());
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        while (m.find()) {
+          String name = m.group(1).trim();
+          if (!name.isEmpty() && seen.add(name)) {
+            horses.add(new Horse(name));
+          }
         }
       }
 

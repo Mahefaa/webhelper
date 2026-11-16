@@ -103,6 +103,32 @@ class ScraperServiceTest {
   }
 
   @Test
+  void scrape_horses_parses_nextjs_payload_when_dom_selector_is_empty() throws Exception {
+    when(s3Client.headObject(any(HeadObjectRequest.class)))
+        .thenThrow(NoSuchKeyException.builder().message("Key not found").build());
+    when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+        .thenReturn(PutObjectResponse.builder().build());
+
+    String htmlWithNextJsPayload =
+        "<html><body><script>self.__next_f.push([1,\"[{\\\"cheval\\\":{\\\"id\\\":101,\\\"nom\\\":\\\"NextGen"
+            + " Horse 1\\\"}},{\\\"cheval\\\":{\\\"id\\\":102,\\\"nom\\\":\\\"NextGen Horse"
+            + " 2\\\"}},{\\\"cheval\\\":{\\\"id\\\":101,\\\"nom\\\":\\\"NextGen Horse"
+            + " 1\\\"}}]\"])</script></body></html>";
+    Document fakeDoc = Jsoup.parse(htmlWithNextJsPayload);
+
+    System.setProperty("webscraping.api.key", "test-key");
+    ScraperService scraperService = new ScraperService(bucketConf, objectMapper, url -> fakeDoc);
+
+    HorseList horseList = scraperService.scrapeHorses("2026-11-16", null);
+
+    assertNotNull(horseList);
+    List<Horse> horses = horseList.getHorses();
+    assertEquals(2, horses.size());
+    assertEquals("NextGen Horse 1", horses.get(0).getName());
+    assertEquals("NextGen Horse 2", horses.get(1).getName());
+  }
+
+  @Test
   void scrape_horses_returns_from_s3_cache_when_available() throws Exception {
     String targetDate = "2026-11-05";
     String cacheKey = targetDate + "_";
