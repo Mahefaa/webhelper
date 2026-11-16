@@ -43,6 +43,7 @@ public class ScraperService {
   private final HtmlFetcher htmlFetcher;
 
   /** Production constructor — uses real Jsoup. */
+  @org.springframework.beans.factory.annotation.Autowired
   public ScraperService(BucketConf bucketConf, ObjectMapper objectMapper) {
     this(bucketConf, objectMapper, url -> Jsoup.connect(url).maxBodySize(0).timeout(60000).get());
   }
